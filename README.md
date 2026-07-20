@@ -26,10 +26,9 @@ npm run preview  # 预览构建结果
 
 ### 在线试玩（GitHub Pages）
 
-推送到 `main` 后 Actions 会自动部署。
+推送到 `main` 后 Actions 会自动部署。地址：
 
-- 自定义域名：`https://fps.lovezzn.com`
-- 备用地址：`https://bestxiangest.github.io/pixel-fps/`
+`https://bestxiangest.github.io/pixel-fps/`
 
 ---
 
