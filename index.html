@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PIXEL FRONT — Pixel FPS</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <!-- 开始菜单 -->
+  <div id="menu">
+    <div class="menu-panel">
+      <div class="menu-logo">PIXEL FRONT</div>
+      <div class="menu-sub">TACTICAL PIXEL WARFARE</div>
+      <p class="menu-desc">
+        超大战场 · 体素军团 · 第一人称枪战<br />
+        沿战线远距据点推进，从已占点快速再部署
+      </p>
+      <button type="button" class="menu-btn primary" id="btn-conquest">
+        CONQUEST — 线性征服推进
+      </button>
+      <button type="button" class="menu-btn" id="btn-kill">
+        KILL RUSH — 击杀 15 人获胜
+      </button>
+      <button type="button" class="menu-btn" id="btn-survival">
+        SURVIVAL — 坚持到死
+      </button>
+      <button type="button" class="menu-btn" id="btn-controls">
+        CONTROLS — 键位教程
+      </button>
+    </div>
+  </div>
+
+  <!-- 键位教程 -->
+  <div id="controls-overlay" aria-hidden="true">
+    <section class="controls-panel" aria-labelledby="controls-title">
+      <div class="controls-header">
+        <div>
+          <div class="controls-kicker">FIELD MANUAL</div>
+          <h2 id="controls-title">键位教程</h2>
+        </div>
+        <button type="button" class="menu-btn" id="btn-controls-close">返回</button>
+      </div>
+      <div class="controls-grid">
+        <div class="controls-group">
+          <div class="controls-group-title">移动</div>
+          <div class="controls-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>移动</span></div>
+          <div class="controls-row"><kbd>Shift</kbd><span>冲刺（开镜时禁用）</span></div>
+          <div class="controls-row"><kbd>Space</kbd><span>跳跃</span></div>
+          <div class="controls-row"><kbd>鼠标</kbd><span>视角瞄准</span></div>
+        </div>
+        <div class="controls-group">
+          <div class="controls-group-title">战斗</div>
+          <div class="controls-row"><kbd>左键</kbd><span>射击</span></div>
+          <div class="controls-row"><kbd>右键</kbd><span>开镜（ADS）</span></div>
+          <div class="controls-row"><kbd>R</kbd><span>换弹</span></div>
+          <div class="controls-row"><kbd>1</kbd><kbd>2</kbd><span>步枪 / 手枪</span></div>
+          <div class="controls-row"><kbd>F</kbd><span>使用弹药箱</span></div>
+        </div>
+        <div class="controls-group">
+          <div class="controls-group-title">战术</div>
+          <div class="controls-row"><kbd>M</kbd><span>重新部署 / 换枪</span></div>
+          <div class="controls-row"><kbd>点击</kbd><span>锁定鼠标 · 解锁音频</span></div>
+          <div class="controls-row"><span class="controls-note">征服阵亡后：在地图上选择已占蓝点复活</span></div>
+          <div class="controls-row"><span class="controls-note">击杀 / 生存：同样有 AI 队友协同作战</span></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 游戏内 HUD -->
+  <div id="hud-root" class="hidden">
+    <!-- 征服票数条 -->
+    <div id="tickets-bar">
+      <div class="ticket-side blue">
+        <span class="ticket-label">BLUE FORCE <b id="blue-force">19</b></span>
+        <span id="blue-tickets">450</span>
+        <div class="ticket-track"><div id="blue-tickets-fill"></div></div>
+      </div>
+      <div class="ticket-vs">VS</div>
+      <div class="ticket-side red">
+        <div class="ticket-track"><div id="red-tickets-fill"></div></div>
+        <span id="red-tickets">450</span>
+        <span class="ticket-label">RED FORCE <b id="red-force">18</b></span>
+      </div>
+    </div>
+
+    <div id="breakthrough-banner">突破大本营！摧毁敌军核心！</div>
+
+    <!-- 战线据点条 -->
+    <div id="sector-strip" aria-label="战线据点">
+      <div id="sector-points"></div>
+    </div>
+
+    <div id="hud">
+      <div class="hud-title">FIELD DATA</div>
+      <div class="hud-row"><span class="hud-key">MODE</span><span id="mode-label">CONQUEST</span></div>
+      <div class="hud-row"><span class="hud-key">ELIMS</span><span id="kills">0</span><span id="kill-target"></span></div>
+      <div class="hud-row"><span class="hud-key">TIME</span><span id="timer">0:00</span></div>
+      <div class="hud-row compact"><span class="hud-key">GRID</span><span id="pos">0,0,0</span></div>
+      <div class="hud-row compact"><span class="hud-key">FPS</span><span id="fps">0</span></div>
+    </div>
+
+    <div id="capture-prompt">
+      <div id="capture-status" class="capture-status">CAPTURING</div>
+      <div id="capture-name">争夺 ALPHA</div>
+      <div id="capture-meta">
+        <span id="capture-blue-count">B0</span>
+        <span class="capture-vs">VS</span>
+        <span id="capture-red-count">R0</span>
+      </div>
+      <div id="capture-bar">
+        <div id="capture-fill"></div>
+        <div id="capture-fill-glow"></div>
+      </div>
+      <div id="capture-pct">50%</div>
+    </div>
+
+    <div id="interaction-prompt">
+      <span class="interaction-key">F</span>
+      <span>补充弹药</span>
+    </div>
+
+    <div id="hp-hud">
+      <div class="hp-label">HP</div>
+      <div id="hp-bar">
+        <div id="hp-fill"></div>
+        <div id="hp-segments"></div>
+      </div>
+      <div id="hp-text">100 / 100</div>
+    </div>
+
+    <div id="weapon-hud">
+      <div id="weapon-name">AR-PIXEL</div>
+      <div id="ammo">30 / 90</div>
+      <div id="reload-status"></div>
+      <button type="button" id="btn-loadout">LOADOUT</button>
+    </div>
+
+    <div id="tactical-map">
+      <div class="tactical-map-title">TACTICAL // 500M</div>
+      <canvas id="minimap" width="160" height="160"></canvas>
+    </div>
+
+    <div id="squad-status" aria-label="就近队友状态">
+      <div class="squad-title">SQUAD // NEARBY</div>
+      <div id="squad-list"></div>
+    </div>
+
+    <!-- 腰射：散布十字准星（间距随 spread 变化） -->
+    <div id="crosshair">
+      <span class="ch ch-t"></span>
+      <span class="ch ch-b"></span>
+      <span class="ch ch-l"></span>
+      <span class="ch ch-r"></span>
+      <span class="ch-dot"></span>
+    </div>
+
+    <!-- 开镜：简易机瞄 -->
+    <div id="ads-sight" aria-hidden="true">
+      <span class="ads-h"></span>
+      <span class="ads-v"></span>
+      <span class="ads-dot"></span>
+    </div>
+
+    <div id="hurt-vignette"></div>
+    <div id="death-hint">RESPAWNING...</div>
+  </div>
+
+  <!-- 征服模式：阵亡地图选点复活 -->
+  <div id="spawn-overlay" aria-hidden="true">
+    <section class="spawn-panel spawn-panel-map" aria-labelledby="spawn-title">
+      <div class="spawn-header">
+        <div>
+          <div class="spawn-kicker">DEPLOYMENT // SELECT POINT</div>
+          <h2 id="spawn-title">选择复活据点</h2>
+        </div>
+        <div id="spawn-countdown">READY</div>
+      </div>
+      <p class="spawn-hint">点击地图上的蓝方据点部署 · 高亮为前沿</p>
+      <div class="spawn-map-wrap">
+        <div id="spawn-map" class="spawn-map" aria-label="复活据点地图"></div>
+        <div class="spawn-map-legend">
+          <span class="legend-owned">己方据点</span>
+          <span class="legend-front">前沿</span>
+          <span class="legend-locked">未占领</span>
+        </div>
+      </div>
+      <div id="spawn-options" class="spawn-options spawn-options-list" hidden></div>
+    </section>
+  </div>
+
+  <!-- 游戏内重新部署与装备设置 -->
+  <div id="deployment-overlay" aria-hidden="true">
+    <section class="deployment-panel" aria-labelledby="deployment-title">
+      <div class="deployment-header">
+        <div>
+          <div class="deployment-kicker">BLUE FORCE // DEPLOYMENT</div>
+          <h2 id="deployment-title">选择主武器</h2>
+        </div>
+        <div id="deployment-current">RIFLE</div>
+      </div>
+      <div id="loadout-options" class="loadout-options"></div>
+      <div class="deployment-actions">
+        <button type="button" class="menu-btn" id="btn-deployment-cancel">返回战场</button>
+        <button type="button" class="menu-btn primary" id="btn-redeploy">重新部署</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- 结算 -->
+  <div id="result-overlay">
+    <div class="result-panel">
+      <div id="result-title" class="win">VICTORY</div>
+      <div id="result-stats"></div>
+      <button type="button" class="menu-btn primary" id="btn-restart">再来一局</button>
+      <button type="button" class="menu-btn" id="btn-menu">返回菜单</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "pixel-fps",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pathfinding": "^0.4.18",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/pathfinding": "^0.1.0",
+    "@types/three": "^0.185.1",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0"
+  }
+}
