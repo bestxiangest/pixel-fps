@@ -46,7 +46,11 @@ export interface DamageSource {
 interface CombatTarget extends DamageSource {
   readonly pos: THREE.Vector3;
   readonly alive: boolean;
-  takeDamage(amount: number, source?: DamageSource): unknown;
+  takeDamage(
+    amount: number,
+    source?: DamageSource,
+    fromPos?: THREE.Vector3,
+  ): unknown;
 }
 
 export interface SquadmateStatus {
@@ -150,6 +154,7 @@ function buildCombatantMesh(
   legL: THREE.Mesh;
   legR: THREE.Mesh;
   hitbox: THREE.Mesh;
+  headHitbox: THREE.Mesh;
   friendlyMarker: THREE.Sprite | null;
 } {
   const root = new THREE.Group();
@@ -274,13 +279,25 @@ function buildCombatantMesh(
   barrel.position.set(0.38, 1.02, -0.55);
   root.add(barrel);
 
+  // 身体 / 头部独立隐形受击盒，便于爆头判定
   const hitbox = new THREE.Mesh(
-    new THREE.BoxGeometry(0.7, 1.8, 0.5),
+    new THREE.BoxGeometry(0.72, 1.42, 0.52),
     new THREE.MeshBasicMaterial({ visible: false }),
   );
-  hitbox.position.y = 0.9;
+  hitbox.position.y = 0.72;
   hitbox.userData.isCombatantHitbox = true;
+  hitbox.userData.isHead = false;
   root.add(hitbox);
+
+  const headHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.44, 0.44, 0.44),
+    new THREE.MeshBasicMaterial({ visible: false }),
+  );
+  headHitbox.position.y = 1.6;
+  headHitbox.userData.isCombatantHitbox = true;
+  headHitbox.userData.isHead = true;
+  root.add(headHitbox);
+  head.userData.isHead = true;
 
   let friendlyMarker: THREE.Sprite | null = null;
   if (faction === 'player') {
@@ -315,6 +332,7 @@ function buildCombatantMesh(
     legL,
     legR,
     hitbox,
+    headHitbox,
     friendlyMarker,
   };
 }
@@ -457,6 +475,7 @@ export class Combatant implements CombatTarget {
     this.root = this.parts.root;
     this.hitbox = this.parts.hitbox;
     this.hitbox.userData.combatant = this;
+    this.parts.headHitbox.userData.combatant = this;
     this.root.userData.combatant = this;
     this.globalCoverPts = globalCover.map(c => new THREE.Vector3(c.x, 0, c.z));
     this.setRoute(this.spawn);
@@ -1039,9 +1058,13 @@ export class Combatant implements CombatTarget {
 
     if (!blocked && aimDot > aimGate && targetDistance < attackRange) {
       if (Math.random() < hitChance) {
-        target.takeDamage(dmg, this);
+        target.takeDamage(dmg, this, eye);
         effects.spawnHit(targetEye, dir.clone().negate(), 0xaa4444);
+        effects.spawnTracer(eye, targetEye, hard ? 0xff6644 : 0xffcc66);
         audio.playHit();
+      } else {
+        const missEnd = eye.clone().addScaledVector(dir, Math.min(attackRange, targetDistance + 4));
+        effects.spawnTracer(eye, missEnd, hard ? 0xff6644 : 0xffcc66);
       }
     } else if (hits.length > 0) {
       const hit = hits[0];
@@ -1049,6 +1072,10 @@ export class Combatant implements CombatTarget {
         ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
         : dir.clone().negate();
       effects.spawnHit(hit.point, normal.normalize(), 0x888888);
+      effects.spawnTracer(eye, hit.point, hard ? 0xff6644 : 0xffcc66);
+    } else {
+      const missEnd = eye.clone().addScaledVector(dir, attackRange);
+      effects.spawnTracer(eye, missEnd, hard ? 0xff6644 : 0xffcc66);
     }
   }
 
@@ -1496,7 +1523,6 @@ export class CombatantManager {
     }
     if (unit.faction === 'enemy' && source?.id === 'player') {
       this.kills += 1;
-      this.audio.playKillConfirm();
       this.onKill?.();
     }
   }
@@ -1932,7 +1958,7 @@ export class CombatantManager {
     obstacles: AABB[],
     getHeight: HeightFn,
     mapBlockers: THREE.Object3D[],
-    playerTakeDamage: (amount: number) => void,
+    playerTakeDamage: (amount: number, fromPos?: THREE.Vector3) => void,
   ) {
     this.battleTime += dt;
     this.latestPlayerPos.copy(playerPos);
@@ -1945,7 +1971,7 @@ export class CombatantManager {
       faction: 'player',
       pos: playerPos,
       alive: playerAlive,
-      takeDamage: amount => playerTakeDamage(amount),
+      takeDamage: (amount, _source, fromPos) => playerTakeDamage(amount, fromPos),
     };
     const targets: CombatTarget[] = [
       playerTarget,

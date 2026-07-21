@@ -18,6 +18,14 @@ export interface WeaponDef {
   range: number;
   damage: number;
   pellets: number;
+  /** 爆头伤害倍率 */
+  headshotMul: number;
+  /** 伤害开始衰减的距离（米）；未设则无衰减 */
+  falloffStart?: number;
+  /** 衰减到最低倍率的距离 */
+  falloffEnd?: number;
+  /** 最远距离伤害倍率（相对基础伤害） */
+  falloffMinMul?: number;
 
   /** 腰射：站立静止目标散布 */
   hipStandSpread: number;
@@ -67,6 +75,7 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     range: 180,
     damage: 22,
     pellets: 1,
+    headshotMul: 2.75,
     // 步枪：腰射散大，连发后坐可控
     hipStandSpread: 1.6,
     hipMoveSpread: 3.4,
@@ -94,6 +103,7 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     range: 82,
     damage: 15,
     pellets: 1,
+    headshotMul: 2.6,
     // 冲锋枪：近距离射速和腰射占优，持续射击扩散较快。
     hipStandSpread: 1.25,
     hipMoveSpread: 2.45,
@@ -121,6 +131,7 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     range: 38,
     damage: 12,
     pellets: 8,
+    headshotMul: 1.85,
     // 霰弹枪：一次发射八颗弹丸，近距离爆发高，距离衰减由射程限制体现。
     hipStandSpread: 4.6,
     hipMoveSpread: 6.2,
@@ -146,8 +157,13 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     reserveMax: 20,
     reloadTime: 2.65,
     range: 300,
-    damage: 96,
+    damage: 110,
     pellets: 1,
+    headshotMul: 2.2,
+    // 近/中距身体一枪死；远距伤害衰减，需更准或补枪
+    falloffStart: 55,
+    falloffEnd: 145,
+    falloffMinMul: 0.48,
     // 狙击枪：开镜几乎无散布，腰射极不可靠，单发后坐明显。
     hipStandSpread: 7.5,
     hipMoveSpread: 10,
@@ -175,6 +191,7 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     range: 80,
     damage: 28,
     pellets: 1,
+    headshotMul: 2.5,
     // 手枪：腰射更准，单发后坐更大
     hipStandSpread: 1.1,
     hipMoveSpread: 2.4,
@@ -202,6 +219,28 @@ export const PRIMARY_WEAPON_IDS: readonly PrimaryWeaponId[] = [
 
 const HIP_FOV = 72;
 const ADS_BLEND_SPEED = 1 / 0.17; // ~170ms
+
+/** 按距离衰减 + 爆头倍率计算最终伤害 */
+export function computeWeaponDamage(
+  def: WeaponDef,
+  distance: number,
+  isHead: boolean,
+): number {
+  let dmg = def.damage;
+  const start = def.falloffStart;
+  const end = def.falloffEnd;
+  const minMul = def.falloffMinMul ?? 1;
+  if (start != null && end != null && end > start) {
+    if (distance >= end) {
+      dmg *= minMul;
+    } else if (distance > start) {
+      const t = (distance - start) / (end - start);
+      dmg *= THREE.MathUtils.lerp(1, minMul, t);
+    }
+  }
+  if (isHead) dmg *= def.headshotMul;
+  return Math.max(1, Math.round(dmg));
+}
 
 function gunMat(color: number, map?: THREE.Texture) {
   const emissive = new THREE.Color(color).multiplyScalar(0.07);
@@ -616,6 +655,7 @@ export class WeaponSystem {
     obj: THREE.Object3D,
     weaponId: WeaponId,
     damage: number,
+    isHeadshot: boolean,
   ) => boolean;
   private onShot?: (position: THREE.Vector3, weaponId: WeaponId) => void;
   private hitMarkerTimer = 0;
@@ -673,7 +713,12 @@ export class WeaponSystem {
   }
 
   setHitCallback(
-    cb: (obj: THREE.Object3D, weaponId: WeaponId, damage: number) => boolean,
+    cb: (
+      obj: THREE.Object3D,
+      weaponId: WeaponId,
+      damage: number,
+      isHeadshot: boolean,
+    ) => boolean,
   ) {
     this.onHitObject = cb;
   }
@@ -797,13 +842,18 @@ export class WeaponSystem {
 
   private traceProjectile(
     weapon: WeaponState,
+    origin: THREE.Vector3,
     baseDir: THREE.Vector3,
   ): 'character' | 'surface' | 'none' {
     const dir = circularSpreadOffset(baseDir, this.camera.up, this.spread);
+    this.raycaster.ray.origin.copy(origin);
     this.raycaster.ray.direction.copy(dir);
     this.raycaster.far = weapon.def.range;
 
     const hits = this.raycaster.intersectObjects(this.shootables, true);
+    let endPoint = origin.clone().addScaledVector(dir, weapon.def.range);
+    let result: 'character' | 'surface' | 'none' = 'none';
+
     for (const hit of hits) {
       if (hit.object.userData.noHit) continue;
       let object: THREE.Object3D | null = hit.object;
@@ -829,33 +879,55 @@ export class WeaponSystem {
       }
       if (deadCombatant) continue;
 
+      endPoint = hit.point.clone();
       const normal = hit.face
         ? hit.face.normal
             .clone()
             .transformDirection(hit.object.matrixWorld)
             .normalize()
         : dir.clone().negate();
-      if (
-        this.onHitObject?.(
-          hit.object,
-          weapon.def.id,
-          weapon.def.damage,
-        )
-      ) {
-        this.effects.spawnHit(hit.point, normal, 0xaa3333);
-        this.hitMarkerTimer = 0.18;
-        return 'character';
+
+      let isHead = false;
+      object = hit.object;
+      while (object) {
+        if (object.userData.isHead) {
+          isHead = true;
+          break;
+        }
+        object = object.parent;
       }
 
-      let color = 0xb09060;
-      const material = (hit.object as THREE.Mesh).material;
-      if (material && !Array.isArray(material) && 'color' in material) {
-        color = (material as THREE.MeshLambertMaterial).color.getHex();
+      const damage = computeWeaponDamage(weapon.def, hit.distance, isHead);
+      if (this.onHitObject?.(hit.object, weapon.def.id, damage, isHead)) {
+        this.effects.spawnHit(hit.point, normal, isHead ? 0xff2222 : 0xaa3333);
+        this.hitMarkerTimer = 0.18;
+        result = 'character';
+      } else {
+        let color = 0xb09060;
+        const material = (hit.object as THREE.Mesh).material;
+        if (material && !Array.isArray(material) && 'color' in material) {
+          color = (material as THREE.MeshLambertMaterial).color.getHex();
+        }
+        this.effects.spawnHit(hit.point, normal, color);
+        result = 'surface';
       }
-      this.effects.spawnHit(hit.point, normal, color);
-      return 'surface';
+      break;
     }
-    return 'none';
+
+    // 曳光：从枪口稍前方画到命中点/最大射程
+    const muzzleWorld = new THREE.Vector3();
+    weapon.muzzle.getWorldPosition(muzzleWorld);
+    const tracerStart = muzzleWorld.distanceTo(origin) < 3
+      ? muzzleWorld
+      : origin.clone().addScaledVector(dir, 0.6);
+    const tracerColor =
+      weapon.def.id === 'sniper'
+        ? 0xfff0a8
+        : weapon.def.id === 'shotgun'
+          ? 0xffb070
+          : 0xffe08a;
+    this.effects.spawnTracer(tracerStart, endPoint, tracerColor);
+    return result;
   }
 
   private tryFire(player: PlayerWeaponContext) {
@@ -903,11 +975,12 @@ export class WeaponSystem {
 
     // 弹道：普通武器单弹丸，霰弹枪在同一个散布锥内发射多颗弹丸。
     this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
-    this.onShot?.(this.raycaster.ray.origin.clone(), w.def.id);
+    const origin = this.raycaster.ray.origin.clone();
+    this.onShot?.(origin, w.def.id);
     const baseDir = this.raycaster.ray.direction.clone();
     let surfaceHit = false;
     for (let pellet = 0; pellet < w.def.pellets; pellet++) {
-      if (this.traceProjectile(w, baseDir) === 'surface') surfaceHit = true;
+      if (this.traceProjectile(w, origin, baseDir) === 'surface') surfaceHit = true;
     }
     if (surfaceHit) this.audio.playHit();
 

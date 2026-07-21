@@ -45,6 +45,9 @@ export class Player {
   private spawnPos = new THREE.Vector3(0, PLAYER_HALF_HEIGHT, 55);
   private spawnYaw = 0;
   private hurtFlash = 0;
+  /** 受击方向指示：前/右/后/左，剩余强度 0–1 */
+  private readonly hurtDirs = { front: 0, right: 0, back: 0, left: 0 };
+  private readonly tmpHurt = new THREE.Vector3();
   private onHpChange?: (hp: number, max: number, dead: boolean) => void;
   private onDeath?: () => void;
 
@@ -133,6 +136,10 @@ export class Player {
     this.respawnTimer = 0;
     this.healthRegenCooldown = 0;
     this.hurtFlash = 0;
+    this.hurtDirs.front = 0;
+    this.hurtDirs.right = 0;
+    this.hurtDirs.back = 0;
+    this.hurtDirs.left = 0;
     this.adsSpeedMul = 1;
     this.setFov(BASE_FOV);
     this.syncCamera();
@@ -146,11 +153,12 @@ export class Player {
     this.respawnImmediate();
   }
 
-  takeDamage(amount: number) {
+  takeDamage(amount: number, fromPos?: THREE.Vector3) {
     if (!this.alive) return;
     this.hp = Math.max(0, this.hp - amount);
     this.healthRegenCooldown = HEALTH_REGEN_DELAY;
     this.hurtFlash = 0.45;
+    if (fromPos) this.registerHurtDirection(fromPos);
     this.pushHp();
     if (this.hp <= 0) {
       this.alive = false;
@@ -161,8 +169,46 @@ export class Player {
     }
   }
 
+  /** 根据攻击来源相对朝向，点亮对应屏幕边缘 */
+  private registerHurtDirection(fromPos: THREE.Vector3) {
+    this.tmpHurt.set(fromPos.x - this.position.x, 0, fromPos.z - this.position.z);
+    if (this.tmpHurt.lengthSq() < 1e-6) {
+      this.hurtDirs.front = Math.max(this.hurtDirs.front, 1);
+      this.hurtDirs.back = Math.max(this.hurtDirs.back, 1);
+      this.hurtDirs.left = Math.max(this.hurtDirs.left, 1);
+      this.hurtDirs.right = Math.max(this.hurtDirs.right, 1);
+      return;
+    }
+    this.tmpHurt.normalize();
+    // 相机朝向：与 syncCamera 一致（yaw 绕 Y）
+    this._forward.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    this._right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    const forwardDot = this.tmpHurt.dot(this._forward);
+    const rightDot = this.tmpHurt.dot(this._right);
+    const pulse = 1;
+    // 用平滑扇区权重，斜向攻击可同时点亮两边
+    const frontW = Math.max(0, forwardDot);
+    const backW = Math.max(0, -forwardDot);
+    const rightW = Math.max(0, rightDot);
+    const leftW = Math.max(0, -rightDot);
+    const sum = frontW + backW + rightW + leftW || 1;
+    this.hurtDirs.front = Math.max(this.hurtDirs.front, (frontW / sum) * pulse);
+    this.hurtDirs.back = Math.max(this.hurtDirs.back, (backW / sum) * pulse);
+    this.hurtDirs.right = Math.max(this.hurtDirs.right, (rightW / sum) * pulse);
+    this.hurtDirs.left = Math.max(this.hurtDirs.left, (leftW / sum) * pulse);
+  }
+
   getHurtFlash(): number {
     return this.hurtFlash;
+  }
+
+  getHurtDirections(): Readonly<{
+    front: number;
+    right: number;
+    back: number;
+    left: number;
+  }> {
+    return this.hurtDirs;
   }
 
   private pushHp() {
@@ -255,6 +301,11 @@ export class Player {
 
   update(dt: number) {
     if (this.hurtFlash > 0) this.hurtFlash = Math.max(0, this.hurtFlash - dt);
+    const decay = dt * 1.85;
+    this.hurtDirs.front = Math.max(0, this.hurtDirs.front - decay);
+    this.hurtDirs.right = Math.max(0, this.hurtDirs.right - decay);
+    this.hurtDirs.back = Math.max(0, this.hurtDirs.back - decay);
+    this.hurtDirs.left = Math.max(0, this.hurtDirs.left - decay);
 
     if (this.alive && this.hp < this.maxHp) {
       if (this.healthRegenCooldown > 0) {

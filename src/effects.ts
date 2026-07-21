@@ -12,11 +12,18 @@ interface Decal {
   life: number;
 }
 
-/** 弹痕 + 像素飞溅粒子 */
+interface Tracer {
+  mesh: THREE.Mesh;
+  life: number;
+  maxLife: number;
+}
+
+/** 弹痕 + 像素飞溅粒子 + 弹道曳光 */
 export class Effects {
   private readonly root = new THREE.Group();
   private readonly particles: Particle[] = [];
   private readonly decals: Decal[] = [];
+  private readonly tracers: Tracer[] = [];
   private readonly particleGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
   private readonly particleMat = new THREE.MeshBasicMaterial({ color: 0xc8a060 });
   private readonly decalGeo = new THREE.PlaneGeometry(0.18, 0.18);
@@ -27,12 +34,49 @@ export class Effects {
     depthWrite: false,
     side: THREE.DoubleSide,
   });
+  private readonly tracerGeo = new THREE.BoxGeometry(1, 1, 1);
   private readonly maxDecals = 80;
   private readonly maxParticles = 120;
+  private readonly maxTracers = 48;
 
   constructor(scene: THREE.Scene) {
     this.root.name = 'effects';
     scene.add(this.root);
+  }
+
+  /** 子弹划过空气的快速曳光轨迹 */
+  spawnTracer(
+    from: THREE.Vector3,
+    to: THREE.Vector3,
+    color = 0xffe08a,
+  ) {
+    const delta = to.clone().sub(from);
+    const length = delta.length();
+    if (length < 0.4) return;
+    while (this.tracers.length >= this.maxTracers) {
+      const old = this.tracers.shift()!;
+      this.root.remove(old.mesh);
+      (old.mesh.material as THREE.Material).dispose();
+    }
+
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const mesh = new THREE.Mesh(this.tracerGeo, mat);
+    // 细长曳光：前段稍粗，整体很细
+    const thickness = THREE.MathUtils.clamp(0.035 + length * 0.00015, 0.03, 0.07);
+    mesh.scale.set(thickness, thickness, length);
+    mesh.position.copy(from).addScaledVector(delta, 0.5);
+    mesh.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 0, 1),
+      delta.normalize(),
+    );
+    this.root.add(mesh);
+    this.tracers.push({ mesh, life: 0.09, maxLife: 0.09 });
   }
 
   spawnHit(point: THREE.Vector3, normal: THREE.Vector3, color = 0xb09060) {
@@ -105,6 +149,22 @@ export class Effects {
         this.root.remove(d.mesh);
         (d.mesh.material as THREE.Material).dispose();
         this.decals.splice(i, 1);
+      }
+    }
+
+    for (let i = this.tracers.length - 1; i >= 0; i--) {
+      const tr = this.tracers[i];
+      tr.life -= dt;
+      const t = Math.max(0, tr.life / tr.maxLife);
+      const mat = tr.mesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = t * 0.95;
+      // 稍稍变细，模拟划过消散
+      tr.mesh.scale.x *= 0.92;
+      tr.mesh.scale.y *= 0.92;
+      if (tr.life <= 0) {
+        this.root.remove(tr.mesh);
+        mat.dispose();
+        this.tracers.splice(i, 1);
       }
     }
   }

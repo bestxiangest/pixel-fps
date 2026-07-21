@@ -110,6 +110,12 @@ const killTargetEl = $('kill-target');
 const modeLabelEl = $('mode-label');
 const timerEl = $('timer');
 const hurtEl = $('hurt-vignette');
+const dmgDirEls = {
+  front: document.querySelector('#damage-dirs .front') as HTMLElement | null,
+  right: document.querySelector('#damage-dirs .right') as HTMLElement | null,
+  back: document.querySelector('#damage-dirs .back') as HTMLElement | null,
+  left: document.querySelector('#damage-dirs .left') as HTMLElement | null,
+};
 const fpsEl = $('fps');
 const posEl = $('pos');
 const deathHint = $('death-hint');
@@ -172,17 +178,56 @@ weapons.setHudCallback(h => {
   }
 });
 
-weapons.setHitCallback((obj, weaponId, damage) => {
+weapons.setHitCallback((obj, weaponId, damage, isHeadshot) => {
   const r = combatants.applyPlayerHit(obj, weaponId, damage);
   if (r === 'none' || r === 'friendly') return false;
   hitMarkerActive = true;
   if (r === 'kill') {
+    pushKillSkull(isHeadshot);
+    audio.playKillConfirm(isHeadshot);
     const won = rules.addKill();
     updateScoreHud();
     if (won) endMatch('victory');
   }
   return true;
 });
+
+const killFeedEl = $('kill-feed');
+const MAX_KILL_SKULLS = 4;
+
+function skullSvg(headshot: boolean): string {
+  const bone = headshot ? '#ffe566' : '#e8e8e8';
+  const socket = headshot ? '#5a3a00' : '#1a1a1a';
+  const glow = headshot ? '#ffb000' : '#9a9a9a';
+  return `
+<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" aria-hidden="true">
+  <rect x="4" y="1" width="8" height="2" fill="${bone}"/>
+  <rect x="3" y="3" width="10" height="6" fill="${bone}"/>
+  <rect x="4" y="9" width="8" height="2" fill="${bone}"/>
+  <rect x="5" y="11" width="6" height="2" fill="${bone}"/>
+  <rect x="5" y="13" width="2" height="2" fill="${bone}"/>
+  <rect x="9" y="13" width="2" height="2" fill="${bone}"/>
+  <rect x="4" y="5" width="3" height="3" fill="${socket}"/>
+  <rect x="9" y="5" width="3" height="3" fill="${socket}"/>
+  <rect x="7" y="8" width="2" height="2" fill="${socket}"/>
+  <rect x="6" y="11" width="1" height="1" fill="${socket}"/>
+  <rect x="9" y="11" width="1" height="1" fill="${socket}"/>
+  <rect x="2" y="4" width="1" height="4" fill="${glow}"/>
+  <rect x="13" y="4" width="1" height="4" fill="${glow}"/>
+</svg>`;
+}
+
+function pushKillSkull(headshot: boolean) {
+  if (!killFeedEl) return;
+  while (killFeedEl.childElementCount >= MAX_KILL_SKULLS) {
+    killFeedEl.firstElementChild?.remove();
+  }
+  const el = document.createElement('div');
+  el.className = headshot ? 'kill-skull headshot' : 'kill-skull';
+  el.innerHTML = `${skullSvg(headshot)}<span class="skull-label">${headshot ? 'HEADSHOT' : 'ELIM'}</span>`;
+  killFeedEl.appendChild(el);
+  window.setTimeout(() => el.remove(), 1700);
+}
 
 player.setHpCallback((hp, max, dead) => {
   const pct = Math.max(0, (hp / max) * 100);
@@ -424,7 +469,7 @@ const loadoutRoles: Record<PrimaryWeaponId, string> = {
   rifle: '均衡中距离 · 稳定持续火力',
   smg: '近距离压制 · 高射速机动',
   shotgun: '室内突破 · 多弹丸爆发',
-  sniper: '远距离精确 · 高单发伤害',
+  sniper: '近中距一枪死 · 远距衰减 · 爆头高伤',
 };
 
 function refreshLoadoutSelection() {
@@ -794,9 +839,9 @@ document.addEventListener('keydown', event => {
   );
 });
 
-function onPlayerDamaged(amount: number) {
+function onPlayerDamaged(amount: number, fromPos?: THREE.Vector3) {
   if (!player.alive || !rules.isPlaying) return;
-  player.takeDamage(amount);
+  player.takeDamage(amount, fromPos);
   if (player.alive) audio.playPlayerHurt();
 }
 
@@ -971,7 +1016,12 @@ function animate() {
 
   if (hurtEl) {
     const f = player.getHurtFlash();
-    hurtEl.style.opacity = String(Math.min(0.6, f * 1.5));
+    hurtEl.style.opacity = String(Math.min(0.35, f * 0.9));
+  }
+  const dirs = player.getHurtDirections();
+  for (const key of ['front', 'right', 'back', 'left'] as const) {
+    const el = dmgDirEls[key];
+    if (el) el.style.opacity = String(Math.min(1, dirs[key] * 1.15));
   }
 
   frameCount++;

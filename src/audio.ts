@@ -189,14 +189,45 @@ export class GameAudio {
   }
 
   playEnemyDeath() {
-    this.tone(200, 0.12, 'sawtooth', 0.08, 60);
-    this.noiseBurst(0.1, 0.2, 600);
+    this.tone(200, 0.12, 'sawtooth', 0.1, 60);
+    this.noiseBurst(0.12, 0.28, 600);
   }
 
-  /** 击杀确认音（更清脆） */
-  playKillConfirm() {
-    this.tone(880, 0.05, 'square', 0.08, 1200);
-    setTimeout(() => this.tone(1320, 0.08, 'square', 0.07, 900), 50);
+  /** 击杀确认音：清晰“叮”一声，爆头更高亢 */
+  playKillConfirm(headshot = false) {
+    const ctx = this.ensure();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+
+    // 低频冲击，盖过枪声一点存在感
+    this.noiseBurst(0.05, headshot ? 0.22 : 0.18, headshot ? 1200 : 900);
+    this.tone(140, 0.07, 'sawtooth', headshot ? 0.1 : 0.08, 70);
+
+    if (headshot) {
+      // 金色爆头：三连升调叮
+      this.tone(988, 0.07, 'square', 0.16, 1480);
+      setTimeout(() => this.tone(1319, 0.08, 'square', 0.14, 1760), 45);
+      setTimeout(() => this.tone(1760, 0.12, 'triangle', 0.12, 1320), 100);
+      // 额外高频闪光
+      setTimeout(() => this.tone(2093, 0.06, 'sine', 0.08, 1600), 130);
+    } else {
+      // 普通击杀：两段清脆确认
+      this.tone(740, 0.06, 'square', 0.14, 1100);
+      setTimeout(() => this.tone(1175, 0.1, 'square', 0.13, 880), 55);
+      setTimeout(() => this.tone(1568, 0.08, 'triangle', 0.08, 980), 110);
+    }
+
+    // 短促“咔”收尾，战地感确认
+    const click = ctx.createOscillator();
+    const cg = ctx.createGain();
+    click.type = 'square';
+    click.frequency.setValueAtTime(headshot ? 2400 : 1800, t0 + 0.02);
+    cg.gain.setValueAtTime(0.09, t0 + 0.02);
+    cg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.06);
+    click.connect(cg);
+    cg.connect(ctx.destination);
+    click.start(t0 + 0.02);
+    click.stop(t0 + 0.08);
   }
 
   playPlayerHurt() {
